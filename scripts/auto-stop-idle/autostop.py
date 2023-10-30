@@ -10,13 +10,17 @@
 #     on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
 #     express or implied. See the License for the specific language governing
 #     permissions and limitations under the License.
-
+import logging
 import requests
 from datetime import datetime
 import getopt, sys
 import urllib3
 import boto3
 import json
+
+logging.basicConfig(level=logging.INFO, format='%(message)s')
+logger = logging.getLogger()
+logger.addHandler(logging.FileHandler('/var/log/notebook_history_s3.log', 'a'))
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -47,7 +51,7 @@ try:
         raise getopt.GetoptError("No input parameters!")
     for opt, arg in opts:
         if opt in ("-h", "--help"):
-            print(helpInfo)
+            logger.info(helpInfo)
             exit(0)
         if opt in ("-t", "--time"):
             time = int(arg)
@@ -56,13 +60,13 @@ try:
         if opt in ("-c", "--ignore-connections"):
             ignore_connections = True
 except getopt.GetoptError:
-    print(usageInfo)
+    logger.info(usageInfo)
     exit(1)
 
 # Missing configuration notification
 missingConfiguration = False
 if not time:
-    print("Missing '-t' or '--time'")
+    logger.info("Missing '-t' or '--time'")
     missingConfiguration = True
 if missingConfiguration:
     exit(2)
@@ -71,10 +75,10 @@ if missingConfiguration:
 def is_idle(last_activity):
     last_activity = datetime.strptime(last_activity,"%Y-%m-%dT%H:%M:%S.%fz")
     if (datetime.now() - last_activity).total_seconds() > time:
-        print('Notebook is idle. Last activity time = ', last_activity)
+        logger.info('Notebook is idle. Last activity time = ', last_activity)
         return True
     else:
-        print('Notebook is not idle. Last activity time = ', last_activity)
+        logger.info('Notebook is not idle. Last activity time = ', last_activity)
         return False
 
 
@@ -98,13 +102,13 @@ if len(data) > 0:
                         idle = False
                 else:
                     idle = False
-                    print('Notebook idle state set as %s because no kernel has been detected.' % idle)
+                    logger.info('Notebook idle state set as %s because no kernel has been detected.' % idle)
             else:
                 if not is_idle(notebook['kernel']['last_activity']):
                     idle = False
-                    print('Notebook idle state set as %s since kernel connections are ignored.' % idle)
+                    logger.info('Notebook idle state set as %s since kernel connections are ignored.' % idle)
         else:
-            print('Notebook is not idle:', notebook['kernel']['execution_state'])
+            logger.info('Notebook is not idle:', notebook['kernel']['execution_state'])
             idle = False
 else:
     client = boto3.client('sagemaker')
@@ -113,13 +117,13 @@ else:
     )['LastModifiedTime']
     if not is_idle(uptime.strftime("%Y-%m-%dT%H:%M:%S.%fz")):
         idle = False
-        print('Notebook idle state set as %s since no sessions detected.' % idle)
+        logger.info('Notebook idle state set as %s since no sessions detected.' % idle)
 
 if idle:
-    print('Closing idle notebook')
+    logger.info('Closing idle notebook')
     client = boto3.client('sagemaker')
     client.stop_notebook_instance(
         NotebookInstanceName=get_notebook_name()
     )
 else:
-    print('Notebook not idle. Pass.')
+    logger.info('Notebook not idle. Pass.')
